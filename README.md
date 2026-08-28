@@ -2,15 +2,16 @@
 
 一个为 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 设计的 arXiv 论文检索插件。
 
-按关键词、作者或分类检索 arXiv 论文，并支持订阅后每日定时推送最新论文。
+按关键词、作者或分类检索 arXiv 论文，支持多种排序方式，并可用 LLM 翻译标题、订阅后每日定时推送最新论文。
 
 **无需任何 API Key**：arXiv 官方 API 免费公开，安装即可使用。
 
 ## ✨ 功能
 
-- `/paper <查询>` 检索论文，返回标题、作者、发表时间与链接
+- 四种检索方式：相关性 / 最新 / 相关+新 / 标题翻译
 - 支持作者（`au:`）、分类（`cat:`）、关键词等 arXiv 查询语法
-- `/paper sub <查询>` 订阅，每天定时推送最新论文到当前会话
+- `/paper zh` 用 AstrBot 已配置的 LLM 翻译论文标题
+- `/paper sub` 订阅，每天定时推送最新论文到当前会话
 - 订阅、退订、列表、清空管理
 - 可配置检索数量与每日推送时间
 
@@ -25,9 +26,10 @@
 ## 🚀 使用
 
 ```
-/paper attention is all you need 5   # 检索关键词，返回 5 条
+/paper attention is all you need 5   # 按相关性检索，返回 5 条
 /paper au:Yoshua Bengio              # 按作者检索
-/paper latest transformer 5          # 按最新发表时间检索，返回 5 条
+/paper latest transformer 5          # 按最新发表时间检索
+/paper recent transformer 5          # 相关 + 较新检索
 /paper zh transformer 5              # 检索并用 LLM 翻译标题
 /paper cat:cs.CL 10                  # 按分类检索，返回 10 条
 /paper sub cat:cs.AI                 # 订阅该分类，每天推送最新论文
@@ -36,6 +38,17 @@
 /paper clear                         # 清空我的订阅
 /paper help                          # 帮助
 ```
+
+### 四种检索方式对比
+
+| 指令 | 排序逻辑 | 适用场景 |
+|---|---|---|
+| `/paper <查询>` | 相关性 | 查经典、最匹配的论文 |
+| `/paper latest <查询>` | 最新提交 | 追最新（可能混入少量无关论文） |
+| `/paper recent <查询>` | 相关 + 新 | 又新又准（推荐） |
+| `/paper zh <查询>` | 相关性 + 翻译标题 | 想要中文标题 |
+
+> `/paper zh` 依赖 AstrBot 已配置的对话模型（LLM）。若未配置或翻译失败，会自动降级为英文结果并给出提示。
 
 ### arXiv 查询技巧
 
@@ -53,6 +66,18 @@
 - `max_results`：检索默认返回数量（默认 5）
 - `push_enabled`：是否开启每日订阅推送（默认开启）
 - `push_time`：每日推送时间，服务器时区（默认 08:00）
+
+## 📝 更新日志
+
+### v1.1.0
+
+- 新增 `/paper zh`：检索并用 LLM 翻译论文标题
+- 未配置 LLM 或翻译失败时自动降级为英文结果
+
+### v1.0.0
+
+- 初始版本：相关性 / 最新 / 相关+新 三种检索方式
+- 订阅每日定时推送最新论文
 
 ## 📄 许可
 
