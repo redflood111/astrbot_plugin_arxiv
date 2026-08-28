@@ -16,5 +16,11 @@
     "type": "string",
     "hint": "格式为 HH:MM，如 08:00、20:30",
     "default": "08:00"
+  },
+  "translate_title": {
+    "description": "是否用 LLM 翻译论文标题",
+    "type": "bool",
+    "hint": "开启后，所有检索和订阅推送都会自动翻译标题（需已配置对话模型）",
+    "default": false
   }
 }

@@ -29,7 +29,6 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   /paper sub <查询>                 订阅，每天定时推送最新论文
   /paper latest <查询>              按最新发表时间排序检索
   /paper recent <查询>              既相关又较新的检索
-  /paper zh <查询>                  检索并翻译标题（用 LLM）
   /paper abs <编号>                翻译指定编号论文的摘要
   /paper cats                      查看常用分类代码
   /paper unsub <查询>               取消订阅
@@ -40,6 +39,8 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   作者   au:Yoshua Bengio
   分类   cat:cs.AI 或 cat:cs.CL
   关键词 transformer / all:transformer
+
+提示：标题翻译请在 WebUI 插件配置中开启「translate_title」开关。
 """
 
 
@@ -111,7 +112,7 @@ def _parse_ts(value: str | None) -> datetime.datetime:
     "astrbot_plugin_arxiv",
     "redflood111",
     "按关键词/作者/分类检索 arXiv 论文，并支持订阅后每日定时推送最新论文。",
-    "v1.2.0",
+    "v1.3.0",
 )
 class ArxivPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
@@ -121,6 +122,7 @@ class ArxivPlugin(Star):
         self.max_results = int(config.get("max_results", 5))
         self.push_enabled = bool(config.get("push_enabled", True))
         self.push_time = str(config.get("push_time", "08:00"))
+        self.translate_title = bool(config.get("translate_title", False))
         self._push_task: asyncio.Task | None = None
 
         if self.push_enabled:
@@ -160,9 +162,6 @@ class ArxivPlugin(Star):
             elif cmd in ("recent", "近期", "相关新"):
                 query, count = self._parse_search(rest)
                 yield event.plain_result(await self._search_recent(event, query, count))
-            elif cmd in ("zh", "中文", "翻译"):
-                query, count = self._parse_search(rest)
-                yield event.plain_result(await self._search_zh(event, query, count))
             elif cmd in ("abs", "abstract", "摘要"):
                 try:
                     index = int(rest.strip())
@@ -220,7 +219,7 @@ class ArxivPlugin(Star):
         if not results:
             return f"没有找到与「{query}」相关的论文。"
         await self._save_last_results(event.unified_msg_origin, results)
-        return self._format_results(f"检索「{query}」", results)
+        return await self._format_with_optional_zh(event.unified_msg_origin, f"检索「{query}」", results)
 
     async def _search_latest(self, event: AstrMessageEvent, query: str, count: int) -> str:
         if not query:
@@ -234,7 +233,7 @@ class ArxivPlugin(Star):
         if not results:
             return f"没有找到与「{query}」相关的论文。"
         await self._save_last_results(event.unified_msg_origin, results)
-        return self._format_results(f"最新检索「{query}」", results)
+        return await self._format_with_optional_zh(event.unified_msg_origin, f"最新检索「{query}」", results)
 
     async def _search_recent(self, event: AstrMessageEvent, query: str, count: int) -> str:
         if not query:
@@ -256,29 +255,14 @@ class ArxivPlugin(Star):
         )
         results = results[:count]
         await self._save_last_results(event.unified_msg_origin, results)
-        return self._format_results(f"相关且较新检索「{query}」", results)
+        return await self._format_with_optional_zh(event.unified_msg_origin, f"相关且较新检索「{query}」", results)
 
-    async def _search_zh(self, event: AstrMessageEvent, query: str, count: int) -> str:
-        if not query:
-            return "用法：/paper zh <关键词>，检索并翻译论文标题。"
-
-        search = arxiv.Search(
-            query=query,
-            max_results=count,
-            sort_by=arxiv.SortCriterion.Relevance,
-        )
-        results = list(self.client.results(search))
-        if not results:
-            return f"没有找到与「{query}」相关的论文。"
-        await self._save_last_results(event.unified_msg_origin, results)
-
-        provider = self.context.get_using_provider(event.unified_msg_origin)
+    async def _maybe_translate_titles(self, session: str, results: list):
+        if not self.translate_title:
+            return None
+        provider = self.context.get_using_provider(session)
         if provider is None:
-            return (
-                "⚠️ 当前未配置对话模型（LLM），无法翻译。返回英文结果：\n"
-                + self._format_results(f"检索「{query}」", results)
-            )
-
+            return None
         try:
             provider_id = provider.meta().id
             titles = [r.title for r in results]
@@ -288,22 +272,21 @@ class ArxivPlugin(Star):
                 prompt=f"请把以下论文标题翻译成简洁准确的中文，每行一个，保持编号：\n{numbered}",
                 system_prompt="你是专业的学术论文翻译助手，擅长翻译论文标题。只输出翻译结果，每行一个，不要添加任何解释或额外文字。",
             )
-            translated_text = resp.completion_text or ""
-            translated_titles = self._parse_translated_titles(
-                translated_text, len(results)
+            translated = self._parse_translated_titles(
+                resp.completion_text or "", len(results)
             )
-            if not any(t for t in translated_titles):
-                raise ValueError("翻译结果为空")
+            if not any(translated):
+                return None
+            return translated
         except Exception as e:
             logger.error(f"[arxiv] 翻译标题失败: {e}")
-            return (
-                "⚠️ 翻译失败，返回英文结果：\n"
-                + self._format_results(f"检索「{query}」", results)
-            )
+            return None
 
-        return self._format_results_zh(
-            f"检索「{query}」（标题已翻译）", results, translated_titles
-        )
+    async def _format_with_optional_zh(self, session: str, title: str, results: list) -> str:
+        translated = await self._maybe_translate_titles(session, results)
+        if translated:
+            return self._format_results_zh(f"{title}（标题已翻译）", results, translated)
+        return self._format_results(title, results)
 
     async def _list_categories(self) -> str:
         lines = ["📚 arXiv 常用分类代码", ""]
@@ -564,7 +547,7 @@ class ArxivPlugin(Star):
                 results = list(self.client.results(search))
                 new_papers = [r for r in results if r.published and r.published > last]
                 if new_papers:
-                    msg = self._format_results(f"订阅「{query}」新论文", new_papers)
+                    msg = await self._format_with_optional_zh(session, f"订阅「{query}」新论文", new_papers)
                     chain = MessageChain().message(msg)
                     await self.context.send_message(session, chain)
                     s["last_pushed"] = now_utc.isoformat()
