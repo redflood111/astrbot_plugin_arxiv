@@ -30,6 +30,7 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   /paper latest <查询>              按最新发表时间排序检索
   /paper recent <查询>              既相关又较新的检索
   /paper zh <查询>                  检索并翻译标题（用 LLM）
+  /paper abs <编号>                翻译指定编号论文的摘要
   /paper cats                      查看常用分类代码
   /paper unsub <查询>               取消订阅
   /paper list                       查看我的订阅
@@ -110,7 +111,7 @@ def _parse_ts(value: str | None) -> datetime.datetime:
     "astrbot_plugin_arxiv",
     "redflood111",
     "按关键词/作者/分类检索 arXiv 论文，并支持订阅后每日定时推送最新论文。",
-    "v1.1.0",
+    "v1.2.0",
 )
 class ArxivPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
@@ -155,18 +156,25 @@ class ArxivPlugin(Star):
                 yield event.plain_result(await self._clear_subs(event))
             elif cmd in ("latest", "new", "最新"):
                 query, count = self._parse_search(rest)
-                yield event.plain_result(await self._search_latest(query, count))
+                yield event.plain_result(await self._search_latest(event, query, count))
             elif cmd in ("recent", "近期", "相关新"):
                 query, count = self._parse_search(rest)
-                yield event.plain_result(await self._search_recent(query, count))
+                yield event.plain_result(await self._search_recent(event, query, count))
             elif cmd in ("zh", "中文", "翻译"):
                 query, count = self._parse_search(rest)
                 yield event.plain_result(await self._search_zh(event, query, count))
+            elif cmd in ("abs", "abstract", "摘要"):
+                try:
+                    index = int(rest.strip())
+                except ValueError:
+                    yield event.plain_result("用法：/paper abs <编号>，例如 /paper abs 2")
+                    return
+                yield event.plain_result(await self._translate_abstract(event, index))
             elif cmd in ("cats", "categories", "分类"):
                 yield event.plain_result(await self._list_categories())
             else:
                 query, count = self._parse_search(arg)
-                yield event.plain_result(await self._search(query, count))
+                yield event.plain_result(await self._search(event, query, count))
         except Exception as e:
             logger.error(f"[arxiv] 处理指令失败: {e}\n{traceback.format_exc()}")
             yield event.plain_result(f"出错了：{e}")
@@ -200,7 +208,7 @@ class ArxivPlugin(Star):
         query = " ".join(tokens).strip()
         return query, min(max(count, 1), 20)
 
-    async def _search(self, query: str, count: int) -> str:
+    async def _search(self, event: AstrMessageEvent, query: str, count: int) -> str:
         if not query:
             return HELP_TEXT
         search = arxiv.Search(
@@ -211,9 +219,10 @@ class ArxivPlugin(Star):
         results = list(self.client.results(search))
         if not results:
             return f"没有找到与「{query}」相关的论文。"
+        await self._save_last_results(event.unified_msg_origin, results)
         return self._format_results(f"检索「{query}」", results)
 
-    async def _search_latest(self, query: str, count: int) -> str:
+    async def _search_latest(self, event: AstrMessageEvent, query: str, count: int) -> str:
         if not query:
             return "用法：/paper latest <关键词>，按最新发表时间排序检索。"
         search = arxiv.Search(
@@ -224,9 +233,10 @@ class ArxivPlugin(Star):
         results = list(self.client.results(search))
         if not results:
             return f"没有找到与「{query}」相关的论文。"
+        await self._save_last_results(event.unified_msg_origin, results)
         return self._format_results(f"最新检索「{query}」", results)
 
-    async def _search_recent(self, query: str, count: int) -> str:
+    async def _search_recent(self, event: AstrMessageEvent, query: str, count: int) -> str:
         if not query:
             return "用法：/paper recent <关键词>，优先返回既相关又较新的论文。"
         pool = max(count * 6, 30)
@@ -245,6 +255,7 @@ class ArxivPlugin(Star):
             reverse=True,
         )
         results = results[:count]
+        await self._save_last_results(event.unified_msg_origin, results)
         return self._format_results(f"相关且较新检索「{query}」", results)
 
     async def _search_zh(self, event: AstrMessageEvent, query: str, count: int) -> str:
@@ -259,6 +270,7 @@ class ArxivPlugin(Star):
         results = list(self.client.results(search))
         if not results:
             return f"没有找到与「{query}」相关的论文。"
+        await self._save_last_results(event.unified_msg_origin, results)
 
         provider = self.context.get_using_provider(event.unified_msg_origin)
         if provider is None:
@@ -302,6 +314,78 @@ class ArxivPlugin(Star):
             lines.append("")
         lines.append("用法示例：/paper cat:cs.CL 10")
         lines.append("完整分类列表：https://arxiv.org/category_taxonomy")
+        return "\n".join(lines)
+
+    async def _save_last_results(self, session: str, results: list) -> None:
+        data = [
+            {
+                "title": r.title,
+                "summary": r.summary,
+                "authors": [a.name for a in r.authors],
+                "entry_id": r.entry_id,
+                "published": r.published.strftime("%Y-%m-%d") if r.published else "",
+            }
+            for r in results
+        ]
+        await self.put_kv_data(f"last_results_{session}", data)
+
+    async def _load_last_results(self, session: str) -> list:
+        data = await self.get_kv_data(f"last_results_{session}", [])
+        return data if isinstance(data, list) else []
+
+    async def _translate_abstract(self, event: AstrMessageEvent, index: int) -> str:
+        session = event.unified_msg_origin
+        papers = await self._load_last_results(session)
+        if not papers:
+            return "还没有检索结果。请先执行 /paper <关键词> 检索，再用 /paper abs <编号> 翻译摘要。"
+        if index < 1 or index > len(papers):
+            return f"编号无效。上次检索共 {len(papers)} 条，请输入 1~{len(papers)} 之间的编号。"
+
+        paper = papers[index - 1]
+        provider = self.context.get_using_provider(session)
+        if provider is None:
+            return (
+                "⚠️ 当前未配置对话模型（LLM），无法翻译摘要。\n"
+                f"标题: {paper['title']}\n"
+                f"链接: {paper['entry_id']}\n\n"
+                f"英文摘要：\n{paper['summary']}"
+            )
+
+        try:
+            provider_id = provider.meta().id
+            resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=f"请把以下论文摘要翻译成准确流畅的中文：\n\n{paper['summary']}",
+                system_prompt="你是专业的学术论文翻译助手，擅长翻译论文摘要。只输出翻译结果，不要添加任何解释或额外文字。",
+            )
+            translated = (resp.completion_text or "").strip()
+            if not translated:
+                raise ValueError("翻译结果为空")
+        except Exception as e:
+            logger.error(f"[arxiv] 翻译摘要失败: {e}")
+            translated = ""
+
+        lines = [
+            f"📄 论文 #{index} 摘要翻译",
+            "",
+            f"标题: {paper['title']}",
+        ]
+        authors = paper.get("authors") or []
+        if authors:
+            shown = ", ".join(authors[:5])
+            if len(authors) > 5:
+                shown += " 等"
+            lines.append(f"作者: {shown}")
+        lines.append(f"发表: {paper.get('published') or '未知'}")
+        lines.append(f"链接: {paper['entry_id']}")
+        if translated:
+            lines.append("")
+            lines.append("【中文摘要】")
+            lines.append(translated)
+        else:
+            lines.append("")
+            lines.append("⚠️ 翻译失败，以下是英文摘要：")
+            lines.append(paper["summary"])
         return "\n".join(lines)
 
     @staticmethod
@@ -390,7 +474,7 @@ class ArxivPlugin(Star):
         )
         await self._save_subs(subs)
 
-        preview = await self._search_latest(query, self.max_results)
+        preview = await self._search_latest(event, query, self.max_results)
         return f"✅ 已订阅「{query}」，每天 {self.push_time} 推送最新论文。当前最新：\n{preview}"
 
     async def _unsubscribe(self, event: AstrMessageEvent, query: str) -> str:

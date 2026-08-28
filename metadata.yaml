@@ -1,6 +1,6 @@
 name: astrbot_plugin_arxiv # 这是你的插件的唯一识别名。
 display_name: arXiv 论文检索
 desc: 按关键词/作者/分类检索 arXiv 论文，支持订阅每日推送最新论文，并可用 LLM 翻译标题。无需任何 API Key，安装即用。
-version: v1.1.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+version: v1.2.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: redflood111 # 作者
 repo: https://github.com/redflood111/astrbot_plugin_arxiv # 插件的仓库地址
