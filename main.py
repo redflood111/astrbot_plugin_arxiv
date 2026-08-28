@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import re
 import traceback
 
 import arxiv
@@ -28,6 +29,7 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   /paper sub <查询>                 订阅，每天定时推送最新论文
   /paper latest <查询>              按最新发表时间排序检索
   /paper recent <查询>              既相关又较新的检索
+  /paper zh <查询>                  检索并翻译标题（用 LLM）
   /paper unsub <查询>               取消订阅
   /paper list                       查看我的订阅
   /paper clear                      清空我的订阅
@@ -61,7 +63,7 @@ def _parse_ts(value: str | None) -> datetime.datetime:
     "astrbot_plugin_arxiv",
     "redflood111",
     "按关键词/作者/分类检索 arXiv 论文，并支持订阅后每日定时推送最新论文。",
-    "v1.0.0",
+    "v1.1.0",
 )
 class ArxivPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
@@ -110,6 +112,9 @@ class ArxivPlugin(Star):
             elif cmd in ("recent", "近期", "相关新"):
                 query, count = self._parse_search(rest)
                 yield event.plain_result(await self._search_recent(query, count))
+            elif cmd in ("zh", "中文", "翻译"):
+                query, count = self._parse_search(rest)
+                yield event.plain_result(await self._search_zh(event, query, count))
             else:
                 query, count = self._parse_search(arg)
                 yield event.plain_result(await self._search(query, count))
@@ -192,6 +197,93 @@ class ArxivPlugin(Star):
         )
         results = results[:count]
         return self._format_results(f"相关且较新检索「{query}」", results)
+
+    async def _search_zh(self, event: AstrMessageEvent, query: str, count: int) -> str:
+        if not query:
+            return "用法：/paper zh <关键词>，检索并翻译论文标题。"
+
+        search = arxiv.Search(
+            query=query,
+            max_results=count,
+            sort_by=arxiv.SortCriterion.Relevance,
+        )
+        results = list(self.client.results(search))
+        if not results:
+            return f"没有找到与「{query}」相关的论文。"
+
+        provider = self.context.get_using_provider(event.unified_msg_origin)
+        if provider is None:
+            return (
+                "⚠️ 当前未配置对话模型（LLM），无法翻译。返回英文结果：\n"
+                + self._format_results(f"检索「{query}」", results)
+            )
+
+        try:
+            provider_id = provider.meta().id
+            titles = [r.title for r in results]
+            numbered = "\n".join(f"{i}. {t}" for i, t in enumerate(titles, 1))
+            resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=f"请把以下论文标题翻译成简洁准确的中文，每行一个，保持编号：\n{numbered}",
+                system_prompt="你是专业的学术论文翻译助手，擅长翻译论文标题。只输出翻译结果，每行一个，不要添加任何解释或额外文字。",
+            )
+            translated_text = resp.completion_text or ""
+            translated_titles = self._parse_translated_titles(
+                translated_text, len(results)
+            )
+            if not any(t for t in translated_titles):
+                raise ValueError("翻译结果为空")
+        except Exception as e:
+            logger.error(f"[arxiv] 翻译标题失败: {e}")
+            return (
+                "⚠️ 翻译失败，返回英文结果：\n"
+                + self._format_results(f"检索「{query}」", results)
+            )
+
+        return self._format_results_zh(
+            f"检索「{query}」（标题已翻译）", results, translated_titles
+        )
+
+    @staticmethod
+    def _parse_translated_titles(text: str, count: int) -> list[str]:
+        titles = []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            line = re.sub(r"^\d+[\.、\)）:：]\s*", "", line).strip()
+            if line:
+                titles.append(line)
+        while len(titles) < count:
+            titles.append("")
+        return titles[:count]
+
+    @staticmethod
+    def _format_results_zh(title: str, results: list, translated_titles: list[str]) -> str:
+        lines = [f"📄 {title}（{len(results)} 条）"]
+        for i, r in enumerate(results, 1):
+            authors = ", ".join(a.name for a in r.authors[:3])
+            if len(r.authors) > 3:
+                authors += " 等"
+            pub = r.published.strftime("%Y-%m-%d") if r.published else "未知"
+            cn = translated_titles[i - 1] if i - 1 < len(translated_titles) else ""
+            cn = cn.strip() if cn else ""
+            if cn:
+                lines.append(
+                    f"\n{i}. {cn}\n"
+                    f"   原标题: {r.title}\n"
+                    f"   作者: {authors}\n"
+                    f"   发表: {pub}\n"
+                    f"   {r.entry_id}"
+                )
+            else:
+                lines.append(
+                    f"\n{i}. {r.title}\n"
+                    f"   作者: {authors}\n"
+                    f"   发表: {pub}\n"
+                    f"   {r.entry_id}"
+                )
+        return "\n".join(lines)
 
     @staticmethod
     def _format_results(title: str, results: list) -> str:

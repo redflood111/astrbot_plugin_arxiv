@@ -28,6 +28,7 @@
 /paper attention is all you need 5   # 检索关键词，返回 5 条
 /paper au:Yoshua Bengio              # 按作者检索
 /paper latest transformer 5          # 按最新发表时间检索，返回 5 条
+/paper zh transformer 5              # 检索并用 LLM 翻译标题
 /paper cat:cs.CL 10                  # 按分类检索，返回 10 条
 /paper sub cat:cs.AI                 # 订阅该分类，每天推送最新论文
 /paper unsub cat:cs.AI               # 取消订阅
