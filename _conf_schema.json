@@ -1,0 +1,20 @@
+{
+  "max_results": {
+    "description": "检索时默认返回的论文数量",
+    "type": "int",
+    "hint": "检索 /paper 时默认返回多少条结果，范围 1~20",
+    "default": 5
+  },
+  "push_enabled": {
+    "description": "是否开启每日订阅推送",
+    "type": "bool",
+    "hint": "开启后，订阅的查询会每天定时推送最新论文",
+    "default": true
+  },
+  "push_time": {
+    "description": "每日推送时间（服务器时区）",
+    "type": "string",
+    "hint": "格式为 HH:MM，如 08:00、20:30",
+    "default": "08:00"
+  }
+}
