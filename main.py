@@ -30,6 +30,7 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   /paper latest <查询>              按最新发表时间排序检索
   /paper recent <查询>              既相关又较新的检索
   /paper zh <查询>                  检索并翻译标题（用 LLM）
+  /paper cats                      查看常用分类代码
   /paper unsub <查询>               取消订阅
   /paper list                       查看我的订阅
   /paper clear                      清空我的订阅
@@ -40,6 +41,35 @@ HELP_TEXT = """📄 arXiv 论文检索插件
   关键词 transformer / all:transformer
 """
 
+
+CATEGORIES = [
+    ("计算机科学 cs", [
+        ("cs.AI", "人工智能"),
+        ("cs.CL", "计算语言学 / NLP / 大语言模型"),
+        ("cs.LG", "机器学习"),
+        ("cs.CV", "计算机视觉"),
+        ("cs.NE", "神经网络与进化计算"),
+        ("cs.IR", "信息检索"),
+        ("cs.SE", "软件工程"),
+        ("cs.CR", "密码学与安全"),
+        ("cs.DS", "数据结构与算法"),
+        ("cs.DB", "数据库"),
+        ("cs.DC", "分布式与并行计算"),
+        ("cs.HC", "人机交互"),
+        ("cs.RO", "机器人"),
+        ("cs.CY", "计算机与社会"),
+    ]),
+    ("统计学 stat", [
+        ("stat.ML", "统计机器学习"),
+    ]),
+    ("电子工程 eess", [
+        ("eess.AS", "音频与语音处理"),
+        ("eess.IV", "图像与视频处理"),
+    ]),
+    ("数学 math", [
+        ("math.OC", "优化与控制"),
+    ]),
+]
 
 def _now_utc_iso() -> str:
     """当前 UTC 时间，ISO 格式字符串。"""
@@ -115,6 +145,8 @@ class ArxivPlugin(Star):
             elif cmd in ("zh", "中文", "翻译"):
                 query, count = self._parse_search(rest)
                 yield event.plain_result(await self._search_zh(event, query, count))
+            elif cmd in ("cats", "categories", "分类"):
+                yield event.plain_result(await self._list_categories())
             else:
                 query, count = self._parse_search(arg)
                 yield event.plain_result(await self._search(query, count))
@@ -243,6 +275,16 @@ class ArxivPlugin(Star):
         return self._format_results_zh(
             f"检索「{query}」（标题已翻译）", results, translated_titles
         )
+
+    async def _list_categories(self) -> str:
+        lines = ["📚 arXiv 常用分类代码", ""]
+        for group, cats in CATEGORIES:
+            lines.append(f"【{group}】")
+            for code, name in cats:
+                lines.append(f"  {code:<10} {name}")
+            lines.append("")
+        lines.append("用法示例：/paper cat:cs.CL 10")
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_translated_titles(text: str, count: int) -> list[str]:

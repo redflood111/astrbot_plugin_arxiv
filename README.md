@@ -11,6 +11,7 @@
 - 四种检索方式：相关性 / 最新 / 相关+新 / 标题翻译
 - 支持作者（`au:`）、分类（`cat:`）、关键词等 arXiv 查询语法
 - `/paper zh` 用 AstrBot 已配置的 LLM 翻译论文标题
+- `/paper cats` 查看常用 arXiv 分类代码
 - `/paper sub` 订阅，每天定时推送最新论文到当前会话
 - 订阅、退订、列表、清空管理
 - 可配置检索数量与每日推送时间
@@ -35,6 +36,7 @@
 /paper sub cat:cs.AI                 # 订阅该分类，每天推送最新论文
 /paper unsub cat:cs.AI               # 取消订阅
 /paper list                          # 查看我的订阅
+/paper cats                         # 查看常用分类代码
 /paper clear                         # 清空我的订阅
 /paper help                          # 帮助
 ```
@@ -72,6 +74,7 @@
 ### v1.1.0
 
 - 新增 `/paper zh`：检索并用 LLM 翻译论文标题
+- 新增 `/paper cats`：查看常用 arXiv 分类代码
 - 未配置 LLM 或翻译失败时自动降级为英文结果
 
 ### v1.0.0
