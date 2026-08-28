@@ -61,6 +61,8 @@
 | 关键词 | `transformer` 或 `all:transformer` |
 | 组合 | `au:Bengio AND cat:cs.AI` |
 
+> 完整分类代码列表：https://arxiv.org/category_taxonomy
+
 ## ⚙️ 配置
 
 在 WebUI 插件配置中可设置：

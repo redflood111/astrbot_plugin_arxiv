@@ -61,6 +61,7 @@ CATEGORIES = [
     ]),
     ("统计学 stat", [
         ("stat.ML", "统计机器学习"),
+        ("stat.AP", "统计学应用（含生物统计）"),
     ]),
     ("电子工程 eess", [
         ("eess.AS", "音频与语音处理"),
@@ -68,6 +69,22 @@ CATEGORIES = [
     ]),
     ("数学 math", [
         ("math.OC", "优化与控制"),
+    ]),
+    ("定量生物学 q-bio", [
+        ("q-bio.GN", "基因组学"),
+        ("q-bio.BM", "生物分子"),
+        ("q-bio.CB", "细胞行为"),
+        ("q-bio.MN", "分子网络"),
+        ("q-bio.NC", "神经元与认知"),
+        ("q-bio.PE", "种群与进化"),
+        ("q-bio.QM", "定量方法"),
+        ("q-bio.SC", "亚细胞过程"),
+        ("q-bio.TO", "组织与器官"),
+        ("q-bio.OT", "其他定量生物学"),
+    ]),
+    ("物理 physics", [
+        ("physics.bio-ph", "生物物理"),
+        ("physics.med-ph", "医学物理"),
     ]),
 ]
 
@@ -284,6 +301,7 @@ class ArxivPlugin(Star):
                 lines.append(f"  {code:<10} {name}")
             lines.append("")
         lines.append("用法示例：/paper cat:cs.CL 10")
+        lines.append("完整分类列表：https://arxiv.org/category_taxonomy")
         return "\n".join(lines)
 
     @staticmethod
